@@ -189,16 +189,28 @@ const CollectionItem = ({ item, collection, searchText }) => {
       toast.error('URL is required');
     }
   };
+
   const viewFolderSettings = () => {
-    dispatch(
-      addTab({
-        uid: uuid(),
-        collectionUid: collection.uid,
-        folderUid: item.uid,
-        type: 'folder-settings'
-      })
-    );
+    if (isItemAFolder(item)) {
+      if (itemIsOpenedInTabs(item, tabs)) {
+        dispatch(
+          focusTab({
+            uid: item.uid
+          })
+        );
+        return;
+      }
+      dispatch(
+        addTab({
+          uid: item.uid,
+          collectionUid: collection.uid,
+          type: 'folder-settings'
+        })
+      );
+      return;
+    }
   };
+
   const requestItems = sortRequestItems(filter(item.items, (i) => isItemARequest(i)));
   const folderItems = sortFolderItems(filter(item.items, (i) => isItemAFolder(i)));
 
@@ -337,7 +349,7 @@ const CollectionItem = ({ item, collection, searchText }) => {
                   Run
                 </div>
               )}
-              {!isFolder && item.type === 'http-request' && (
+              {!isFolder && (item.type === 'http-request' || item.type === 'graphql-request') && (
                 <div
                   className="dropdown-item"
                   onClick={(e) => {

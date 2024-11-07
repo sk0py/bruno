@@ -1039,23 +1039,13 @@ export const browseDirectory = () => (dispatch, getState) => {
   });
 };
 
-export const browseFiles =
-  (filters = []) =>
+export const browseFile =
+  (filters = [], multiSelections) =>
   (dispatch, getState) => {
     const { ipcRenderer } = window;
 
     return new Promise((resolve, reject) => {
-      ipcRenderer.invoke('renderer:browse-files', filters).then(resolve).catch(reject);
-    });
-  };
-
-  export const browseFile =
-  (filters = []) =>
-  (dispatch, getState) => {
-    const { ipcRenderer } = window;
-
-    return new Promise((resolve, reject) => {
-      ipcRenderer.invoke('renderer:browse-file', filters).then(resolve).catch(reject);
+      ipcRenderer.invoke('renderer:browse-file', filters, multiSelections).then(resolve).catch(reject);
     });
   };
 

@@ -10,7 +10,6 @@ const {
   hasBruExtension,
   isDirectory,
   browseDirectory,
-  browseFiles,
   browseFile,
   createDirectory,
   searchForBruFiles,
@@ -49,22 +48,11 @@ const registerRendererEventHandlers = (mainWindow, watcher, lastOpenedCollection
   });
 
   // browse directory for file
-  ipcMain.handle('renderer:browse-files', async (event, pathname, request, filters) => {
+  ipcMain.handle('renderer:browse-file', async (_, filters, multiSelections) => {
     try {
-      const filePaths = await browseFiles(mainWindow, filters);
+      const filePaths = await browseFile(mainWindow, filters, multiSelections);
 
       return filePaths;
-    } catch (error) {
-      return Promise.reject(error);
-    }
-  });
-
-  // browse directory for one file
-  ipcMain.handle('renderer:browse-file', async (event, pathname, request, filters) => {
-    try {
-      const filePath = await browseFile(mainWindow, filters);
-
-      return filePath;
     } catch (error) {
       return Promise.reject(error);
     }

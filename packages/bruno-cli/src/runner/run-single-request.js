@@ -19,7 +19,9 @@ const { makeAxiosInstance } = require('../utils/axios-instance');
 const { addAwsV4Interceptor, resolveAwsV4Credentials } = require('./awsv4auth-helper');
 const { shouldUseProxy, PatchedHttpsProxyAgent } = require('../utils/proxy-util');
 const path = require('path');
-const { createFormData } = require('../utils/common');
+const { parseDataFromResponse } = require('../utils/common');
+const { getCookieStringForUrl, saveCookies, shouldUseCookies } = require('../utils/cookies');
+const { createFormData } = require('../utils/form-data');
 const protocolRegex = /^([-+\w]{1,25})(:?\/\/|:)/;
 
 const onConsoleLog = (type, args) => {
@@ -35,13 +37,17 @@ const runSingleRequest = async function (
   processEnvVars,
   brunoConfig,
   collectionRoot,
-  runtime
+  runtime,
+  collection
 ) {
   try {
     let request;
     let nextRequestName;
-
-    request = prepareRequest(bruJson.request, collectionRoot);
+    let item = { 
+      pathname: path.join(collectionPath, filename),
+      ...bruJson
+    }
+    request = prepareRequest(item, collection);
 
     request.__bruno__executionMode = 'cli';
 
@@ -49,10 +55,7 @@ const runSingleRequest = async function (
     scriptingConfig.runtime = runtime;
 
     // run pre request script
-    const requestScriptFile = compact([
-      get(collectionRoot, 'request.script.req'),
-      get(bruJson, 'request.script.req')
-    ]).join(os.EOL);
+    const requestScriptFile = get(request, 'script.req');
     if (requestScriptFile?.length) {
       const scriptRuntime = new ScriptRuntime({ runtime: scriptingConfig?.runtime });
       const result = await scriptRuntime.runRequestScript(
@@ -178,6 +181,14 @@ const runSingleRequest = async function (
       });
     }
 
+    //set cookies if enabled
+    if (!options.disableCookies) {
+      const cookieString = getCookieStringForUrl(request.url);
+      if (cookieString && typeof cookieString === 'string' && cookieString.length) {
+        request.headers['cookie'] = cookieString;
+      }
+    }
+
     // stringify the request url encoded params
     if (request.headers['content-type'] === 'application/x-www-form-urlencoded') {
       request.data = qs.stringify(request.data);
@@ -217,11 +228,21 @@ const runSingleRequest = async function (
       /** @type {import('axios').AxiosResponse} */
       response = await axiosInstance(request);
 
+      const { data } = parseDataFromResponse(response, request.__brunoDisableParsingResponseJson);
+      response.data = data;
+
       // Prevents the duration on leaking to the actual result
       responseTime = response.headers.get('request-duration');
       response.headers.delete('request-duration');
+
+      //save cookies if enabled
+      if (!options.disableCookies) {
+        saveCookies(request.url, response.headers);
+      }
     } catch (err) {
       if (err?.response) {
+        const { data } = parseDataFromResponse(err?.response);
+        err.response.data = data;
         response = err.response;
 
         // Prevents the duration on leaking to the actual result
@@ -246,7 +267,7 @@ const runSingleRequest = async function (
             data: null,
             responseTime: 0
           },
-          error: err.message,
+          error: err?.message || err?.errors?.map(e => e?.message)?.at(0) || err?.code || 'Request Failed!',
           assertionResults: [],
           testResults: [],
           nextRequestName: nextRequestName
@@ -277,10 +298,7 @@ const runSingleRequest = async function (
     }
 
     // run post response script
-    const responseScriptFile = compact([
-      get(collectionRoot, 'request.script.res'),
-      get(bruJson, 'request.script.res')
-    ]).join(os.EOL);
+    const responseScriptFile = get(request, 'script.res');
     if (responseScriptFile?.length) {
       const scriptRuntime = new ScriptRuntime({ runtime: scriptingConfig?.runtime });
       const result = await scriptRuntime.runResponseScript(
@@ -325,7 +343,7 @@ const runSingleRequest = async function (
 
     // run tests
     let testResults = [];
-    const testFile = compact([get(collectionRoot, 'request.tests'), get(bruJson, 'request.tests')]).join(os.EOL);
+    const testFile = get(request, 'tests');
     if (typeof testFile === 'string') {
       const testRuntime = new TestRuntime({ runtime: scriptingConfig?.runtime });
       const result = await testRuntime.runTests(

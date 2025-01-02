@@ -304,7 +304,8 @@ export const transformCollectionToSaveToExportAsFile = (collection, options = {}
           script: si.request.script,
           vars: si.request.vars,
           assertions: si.request.assertions,
-          tests: si.request.tests
+          tests: si.request.tests,
+          docs: si.request.docs
         };
 
         // Handle auth object dynamically
@@ -404,7 +405,7 @@ export const transformCollectionToSaveToExportAsFile = (collection, options = {}
           request: {}
         };
 
-        let { request, meta } = si?.root || {};
+        let { request, meta, docs } = si?.root || {};
         let { headers, script = {}, vars = {}, tests } = request || {};
 
         // folder level headers
@@ -434,6 +435,11 @@ export const transformCollectionToSaveToExportAsFile = (collection, options = {}
         // folder level tests
         if (tests?.length) {
           di.root.request.tests = tests;
+        }
+
+        // folder level docs
+        if (docs?.length) {
+          di.root.docs = docs;
         }
 
         if (meta?.name) {
@@ -796,13 +802,26 @@ export const getGlobalEnvironmentVariables = ({ globalEnvironments, activeGlobal
   const environment = globalEnvironments?.find(env => env?.uid === activeGlobalEnvironmentUid);
   if (environment) {
     each(environment.variables, (variable) => {
-      if (variable.name && variable.value && variable.enabled) {
+      if (variable.name && variable.enabled) {
         variables[variable.name] = variable.value;
       }
     });
   }
   return variables;
 };
+
+export const getGlobalEnvironmentVariablesMasked = ({ globalEnvironments, activeGlobalEnvironmentUid }) => {
+  const environment = globalEnvironments?.find(env => env?.uid === activeGlobalEnvironmentUid);
+
+  if (environment && Array.isArray(environment.variables)) {
+    return environment.variables
+      .filter((variable) => variable.name && variable.value && variable.enabled && variable.secret)
+      .map((variable) => variable.name);
+  }
+
+  return [];
+};
+
 
 export const getEnvironmentVariables = (collection) => {
   let variables = {};
@@ -820,6 +839,23 @@ export const getEnvironmentVariables = (collection) => {
   return variables;
 };
 
+export const getEnvironmentVariablesMasked = (collection) => {
+  // Return an empty array if the collection is invalid or not provided
+  if (!collection || !collection.activeEnvironmentUid) {
+    return [];
+  }
+
+  // Find the active environment in the collection
+  const environment = findEnvironmentInCollection(collection, collection.activeEnvironmentUid);
+  if (!environment || !environment.variables) {
+    return [];
+  }
+
+  // Filter the environment variables to get only the masked (secret) ones
+  return environment.variables
+    .filter((variable) => variable.name && variable.value && variable.enabled && variable.secret)
+    .map((variable) => variable.name);
+};
 
 const getPathParams = (item) => {
   let pathParams = {};
@@ -855,6 +891,27 @@ export const getAllVariables = (collection, item) => {
   const { globalEnvironmentVariables = {} } = collection;
 
   const { processEnvVariables = {}, runtimeVariables = {} } = collection;
+  const mergedVariables = {
+    ...folderVariables,
+    ...requestVariables,
+    ...runtimeVariables
+  };
+
+  const mergedVariablesGlobal = {
+    ...collectionVariables,
+    ...envVariables,
+    ...folderVariables,
+    ...requestVariables,
+    ...runtimeVariables,
+  }
+
+  const maskedEnvVariables = getEnvironmentVariablesMasked(collection) || [];
+  const maskedGlobalEnvVariables = collection?.globalEnvSecrets || [];
+
+  const filteredMaskedEnvVariables = maskedEnvVariables.filter((key) => !(key in mergedVariables));
+  const filteredMaskedGlobalEnvVariables = maskedGlobalEnvVariables.filter((key) => !(key in mergedVariablesGlobal));
+
+  const uniqueMaskedVariables = [...new Set([...filteredMaskedEnvVariables, ...filteredMaskedGlobalEnvVariables])];
 
   return {
     ...globalEnvironmentVariables,
@@ -866,6 +923,7 @@ export const getAllVariables = (collection, item) => {
     pathParams: {
       ...pathParams
     },
+    maskedEnvVariables: uniqueMaskedVariables,
     process: {
       env: {
         ...processEnvVariables
